@@ -2,7 +2,16 @@ import socket
 import threading
 
 
-# ---------- FUNCIÓN: ESCUCHAR UDP ----------
+# ---------- FUNCIÓN PARA MANEJAR CONEXIONES TCP ----------
+def manejar_cliente(conn, addr):
+    print(f"[TCP] Conexión recibida de {addr}")
+    mensaje = conn.recv(1024).decode()
+    print(f"[TCP] Mensaje recibido: {mensaje}")
+    conn.send("¡Hola desde la laptop!".encode())
+    conn.close()
+
+
+# ---------- FUNCIÓN: ESCUCHAR UDP (DESCUBRIMIENTO) ----------
 def servidor_udp():
     UDP_IP = ""
     UDP_PORT = 50000
@@ -28,17 +37,14 @@ def servidor_tcp():
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((HOST, PORT))
-    server_socket.listen(1)
+    server_socket.listen(5)
 
     print(f"[TCP] Servidor escuchando en el puerto {PORT}...")
 
     while True:
         conn, addr = server_socket.accept()
-        print(f"[TCP] Conexión recibida de {addr}")
-        mensaje = conn.recv(1024).decode()
-        print(f"[TCP] Mensaje recibido: {mensaje}")
-        conn.send("¡Hola desde la laptop!".encode())
-        conn.close()
+        hilo_cliente = threading.Thread(target=manejar_cliente, args=(conn, addr))
+        hilo_cliente.start()
 
 
 # ---------- EJECUCIÓN EN PARALELO ----------
