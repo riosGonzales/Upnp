@@ -5,11 +5,18 @@ import os
 
 
 # ---------- FUNCIÓN PARA MANEJAR CONEXIONES TCP ----------
+# Modificar la función de manejar_cliente para enviar comandos
 def manejar_cliente(conn, addr):
     print(f"[TCP] Conexión recibida de {addr}")
     mensaje = conn.recv(1024).decode()
     print(f"[TCP] Mensaje recibido: {mensaje}")
-    conn.send(f"Respuesta desde el servidor (PID: {os.getpid()})".encode())
+    if mensaje == "VOLUMEN_ARRIBA":
+        conn.send(f"Comando para subir volumen recibido (PID: {os.getpid()})".encode())
+    elif mensaje == "VOLUMEN_ABAJO":
+        conn.send(f"Comando para bajar volumen recibido (PID: {os.getpid()})".encode())
+    else:
+        conn.send(f"Comando desconocido (PID: {os.getpid()})".encode())
+        
     conn.close()
 
 
