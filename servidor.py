@@ -1,82 +1,94 @@
 import socket
-import select
-import multiprocessing
-import os
+import threading
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+from comtypes import CLSCTX_ALL
 
+# ---------- CONFIGURACIÓN DE AUDIO (pycaw) ----------
+dispositivos = AudioUtilities.GetSpeakers()
+interfaz = dispositivos.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+control_volumen = interfaz.QueryInterface(IAudioEndpointVolume)
 
-# ---------- FUNCIÓN PARA MANEJAR CONEXIONES TCP ----------
-# Modificar la función de manejar_cliente para enviar comandos
-def manejar_cliente(conn, addr):
-    print(f"[TCP] Conexión recibida de {addr}")
-    mensaje = conn.recv(1024).decode()
-    print(f"[TCP] Mensaje recibido: {mensaje}")
-    if mensaje == "VOLUMEN_ARRIBA":
-        conn.send(f"Comando para subir volumen recibido (PID: {os.getpid()})".encode())
-    elif mensaje == "VOLUMEN_ABAJO":
-        conn.send(f"Comando para bajar volumen recibido (PID: {os.getpid()})".encode())
-    else:
-        conn.send(f"Comando desconocido (PID: {os.getpid()})".encode())
-        
-    conn.close()
+def obtener_volumen_actual():
+    return round(control_volumen.GetMasterVolumeLevelScalar() * 100)
 
+def establecer_volumen(valor):
+    control_volumen.SetMasterVolumeLevelScalar(valor / 100, None)
 
-# ---------- FUNCIÓN: SERVIDOR UDP (DESCUBRIMIENTO) ----------
-def servidor_udp(sock_udp):
-    print(f"[UDP] Esperando descubrimientos en el socket UDP...")
+def cambiar_volumen(comando):
+    volumen_actual = obtener_volumen_actual()
+    if comando == "VOLUMEN_ARRIBA" and volumen_actual < 100:
+        volumen_actual = min(100, volumen_actual + 2)
+    elif comando == "VOLUMEN_ABAJO" and volumen_actual > 0:
+        volumen_actual = max(0, volumen_actual - 2)
+    establecer_volumen(volumen_actual)
+    return volumen_actual
 
-    while True:
-        ready = select.select([sock_udp], [], [], 1)
-        if ready[0]:
-            data, addr = sock_udp.recvfrom(1024)
-            mensaje = data.decode()
-            if mensaje == "DESCUBRIR_SERVIDOR":
-                print(f"[UDP] Descubrimiento recibido de {addr}")
-                respuesta = "SERVIDOR_DISPONIBLE"
-                sock_udp.sendto(respuesta.encode(), addr)
+# ---------- MANEJO DE CLIENTES TCP ----------
+def manejar_cliente_tcp(conn, addr):
+    try:
+        print(f"[TCP] Conexión de {addr}")
+        mensaje = conn.recv(1024).decode().strip()
+        print(f"[TCP] Comando recibido: {mensaje}")
 
+        if mensaje in ["VOLUMEN_ARRIBA", "VOLUMEN_ABAJO"]:
+            nuevo_volumen = cambiar_volumen(mensaje)
+            respuesta = f"✅ Volumen actualizado: {nuevo_volumen}%"
+        else:
+            respuesta = "❌ Comando desconocido"
 
-# ---------- FUNCIÓN: SERVIDOR TCP ----------
-def servidor_tcp():
+        conn.send(respuesta.encode())
+    except Exception as e:
+        print(f"[ERROR TCP] {e}")
+        conn.send(f"❌ Error interno: {e}".encode())
+    finally:
+        conn.close()
+
+# ---------- SERVIDOR TCP ----------
+def iniciar_servidor_tcp():
     HOST = ""
     PORT = 12345
 
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind((HOST, PORT))
-    server_socket.listen(5)
-    server_socket.setblocking(0)
-
+    servidor_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    servidor_socket.bind((HOST, PORT))
+    servidor_socket.listen(5)
     print(f"[TCP] Servidor escuchando en el puerto {PORT}...")
 
-    sockets_activas = [server_socket]
+    while True:
+        conn, addr = servidor_socket.accept()
+        hilo = threading.Thread(target=manejar_cliente_tcp, args=(conn, addr), daemon=True)
+        hilo.start()
+
+# ---------- SERVIDOR UDP (DESCUBRIMIENTO) ----------
+def iniciar_servidor_udp():
+    HOST = ""
+    PORT = 50000
+
+    sock_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock_udp.bind((HOST, PORT))
+    print(f"[UDP] Servidor escuchando descubrimientos en el puerto {PORT}...")
 
     while True:
-        ready_to_read, _, _ = select.select(sockets_activas, [], [], 1)
+        try:
+            data, addr = sock_udp.recvfrom(1024)
+            mensaje = data.decode().strip()
+            if mensaje == "DESCUBRIR_SERVIDOR":
+                print(f"[UDP] Descubrimiento desde {addr}")
+                sock_udp.sendto("SERVIDOR_DISPONIBLE".encode(), addr)
+        except Exception as e:
+            print(f"[ERROR UDP] {e}")
 
-        for sock in ready_to_read:
-            if sock == server_socket:
-                conn, addr = server_socket.accept()
-                conn.setblocking(0)
-                sockets_activas.append(conn)
-                print(f"[TCP] Conexión establecida con {addr}")
-            else:
-                proceso_cliente = multiprocessing.Process(
-                    target=manejar_cliente, args=(sock, sock.getpeername())
-                )
-                proceso_cliente.start()
-                sockets_activas.remove(sock)
-
-
-# ---------- EJECUCIÓN EN PARALELO ----------
+# ---------- PROGRAMA PRINCIPAL ----------
 if __name__ == "__main__":
-    sock_udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock_udp.bind(("", 50000))
-    sock_udp.setblocking(0)
+    print("[🟢] Servidor de volumen iniciando...")
 
-    hilo_udp = multiprocessing.Process(target=servidor_udp, args=(sock_udp,))
-    hilo_tcp = multiprocessing.Process(target=servidor_tcp)
+    hilo_udp = threading.Thread(target=iniciar_servidor_udp, daemon=True)
+    hilo_tcp = threading.Thread(target=iniciar_servidor_tcp, daemon=True)
 
     hilo_udp.start()
     hilo_tcp.start()
 
-    hilo_udp.join()
-    hilo_tcp.join()
+    try:
+        while True:
+            pass  
+    except KeyboardInterrupt:
+        print("\n[🚪] Servidor detenido manualmente.")
