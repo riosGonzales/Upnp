@@ -47,7 +47,6 @@ def enviar_comando(ip_servidor, comando):
         sock_tcp.recv(1024)
         sock_tcp.close()
 
-        # Cambiar volumen real
         if comando == "VOLUMEN_ARRIBA" and nivel_volumen < 100:
             nivel_volumen = min(100, nivel_volumen + 2)
         elif comando == "VOLUMEN_ABAJO" and nivel_volumen > 0:
@@ -111,7 +110,6 @@ def iniciar_gui(ip_servidor):
 
 # ---------- PROGRAMA PRINCIPAL ----------
 if __name__ == "__main__":
-    # Obtener control de volumen de Windows
     control_volumen = obtener_control_volumen()
     nivel_volumen = obtener_volumen_actual()
 
